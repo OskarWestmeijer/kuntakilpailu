@@ -22,20 +22,23 @@
 		files: SourceFile[];
 		polled: string | null;
 		onpick: (meta: IndicatorMeta) => void;
+		/** Only meaningful below the 640px breakpoint, where the rail becomes an off-canvas
+		 *  drawer instead of a permanent column — see the media query below. */
+		open?: boolean;
 	};
 
-	const { activeKey, files, polled, onpick }: Props = $props();
+	const { activeKey, files, polled, onpick, open = false }: Props = $props();
 
 	const groups = $derived(indicatorGroups(lang.value));
 </script>
 
-<nav class="panel rail" aria-label={t('indicator')}>
+<nav class="panel rail" class:is-open={open} aria-label={t('indicator')}>
 	<div class="head">
 		<p class="stat-label">{t('indicator')}</p>
 		<p class="note">{t('indicatorNote')}</p>
 	</div>
 
-	<div class="list">
+	<div class="rail-list">
 		{#each groups as group (group.group)}
 			{#if group.group}
 				<p class="stat-label group">{group.group}</p>
@@ -49,7 +52,7 @@
 					aria-pressed={activeKey === meta.key}
 					onclick={() => onpick(meta)}
 				>
-					<span class="label">{indicatorName(meta, lang.value)}</span>
+					<span class="item-label">{indicatorName(meta, lang.value)}</span>
 					<span class="dots" aria-hidden="true">
 						{#each SCORE_PALETTE as color (color)}
 							<i style:background={color}></i>
@@ -83,7 +86,10 @@
 		color: var(--ink-muted);
 	}
 
-	.list {
+	/* Named .rail-list rather than .list, and .item-label below rather than .label — DaisyUI
+	   ships global `.list` and `.label` utilities that silently win ties against a same-named
+	   component rule; see the note on .panel-toggle in MapCard.svelte. */
+	.rail-list {
 		flex: 1;
 		min-height: 0;
 		overflow-y: auto;
@@ -131,7 +137,7 @@
 		font-weight: 600;
 	}
 
-	.label {
+	.item-label {
 		flex: 1;
 		/* A flex item's default `min-width: auto` refuses to shrink below its text, so without
 		   this the ellipsis never engages and long names push the swatch out of the button —
@@ -162,5 +168,26 @@
 	.foot {
 		padding: 8px 12px;
 		border-top: 1px solid var(--line);
+	}
+
+	/* Below this the page's own grid drops the rail's column (see +page.svelte); this is what
+	   makes it a drawer over the map instead, matching `.side`'s pattern on the other edge. */
+	@media (max-width: 640px) {
+		.rail {
+			position: fixed;
+			top: 54px;
+			left: 0;
+			bottom: 0;
+			width: 280px;
+			max-width: 82vw;
+			z-index: 30;
+			transform: translateX(-100%);
+			transition: transform 0.25s ease;
+			box-shadow: 0 14px 40px rgba(16, 26, 43, 0.18);
+		}
+
+		.rail.is-open {
+			transform: none;
+		}
 	}
 </style>

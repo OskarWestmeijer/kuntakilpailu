@@ -1,5 +1,7 @@
 # kuntakilpailu
 
+![Deploy to GitHub Pages](https://github.com/OskarWestmeijer/kuntakilpailu/actions/workflows/deploy.yml/badge.svg)
+
 One score per Finnish municipality, built from six Statistics Finland registers: unemployment,
 population change, median income, higher education, average age and gender balance.
 
@@ -13,6 +15,19 @@ Live at **https://oskarwestmeijer.github.io/kuntakilpailu/**.
 
 The page was originally one of seven maps in [`maps`](https://github.com/OskarWestmeijer/maps),
 which still hosts its own copy.
+
+## Example
+
+![Helsinki selected on the score map, with its indicators and the national ranking table beside it](static/screenshot.png)
+
+## Technologies
+
+```
+- Sveltekit (SSG, adapter-static) & Vite
+- Vitest & Playwright
+- Tailwind & DaisyUI
+- Statistics Finland's PxWeb API (Python, standard library only)
+```
 
 ## Running it
 

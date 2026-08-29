@@ -37,7 +37,7 @@
 	}: Props = $props();
 </script>
 
-<section class="panel list">
+<section class="panel list-card">
 	<div class="head">
 		<div class="seg" role="group" aria-label={t('map')}>
 			<button
@@ -71,7 +71,10 @@
 </section>
 
 <style>
-	.list {
+	/* Named .list-card rather than .list: DaisyUI ships a global `.list` utility
+	   (flex-direction/font-size) that silently wins ties against a same-named component rule —
+	   see the note on .panel-toggle in MapCard.svelte for the bug that taught us this. */
+	.list-card {
 		display: flex;
 		flex-direction: column;
 		flex: 1;

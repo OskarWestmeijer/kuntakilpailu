@@ -68,7 +68,7 @@
 
 	{#if ondrawer}
 		<div class="foot">
-			<button type="button" class="drawer-toggle" onclick={ondrawer}>
+			<button type="button" class="panel-toggle" onclick={ondrawer}>
 				{drawerOpen ? t('close') : t('panel')}
 			</button>
 		</div>
@@ -88,6 +88,9 @@
 		justify-content: space-between;
 		gap: 16px;
 		padding: 12px 12px 0;
+		/* Never shrunk for space: the map (flex: 1, below) is the one thing on this card that can
+		   stand to lose height, so it — not the title or the legend — is what gives. */
+		flex: none;
 	}
 
 	h2 {
@@ -109,9 +112,10 @@
 		align-items: center;
 		gap: 12px;
 		padding: 0 12px 10px;
+		flex: none;
 	}
 
-	.drawer-toggle {
+	.panel-toggle {
 		display: none;
 		margin-left: auto;
 		font: inherit;
@@ -127,8 +131,18 @@
 	}
 
 	@media (max-width: 1060px) {
-		.drawer-toggle {
+		.panel-toggle {
 			display: block;
+		}
+	}
+
+	/* Title and legend no longer fit side by side once the rail's column is gone and the map
+	   takes the full width but a phone's own width still isn't much — stacked, the legend gets
+	   the full width, so its edge labels stop landing past the card's own edge. */
+	@media (max-width: 640px) {
+		.head {
+			flex-direction: column;
+			align-items: stretch;
 		}
 	}
 </style>

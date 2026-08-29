@@ -42,6 +42,9 @@
 	let sortBy = $state(SCORE_KEY);
 	let sortDir = $state<'best' | 'worst'>('best');
 	let drawerOpen = $state(false);
+	// Only meaningful below IndicatorRail's own 640px breakpoint, where it leaves the grid and
+	// becomes an off-canvas drawer like `.side` — see IndicatorRail.svelte.
+	let railOpen = $state(false);
 
 	onMount(() => {
 		restoreLang();
@@ -84,10 +87,24 @@
 		if (code) drawerOpen = true;
 	}
 
+	function closeDrawer() {
+		drawerOpen = false;
+
+		// In table mode the map isn't rendered at all (see `main` below), so on the narrow layout
+		// — where this panel *is* the only thing on screen — closing it with nothing behind it
+		// would leave a blank page with no way back in. Map mode always has something to return
+		// to; table mode doesn't, so closing falls back to it.
+		mode = 'map';
+	}
+
 	function pickIndicator(picked: IndicatorMeta) {
 		activeKey = picked.key;
 		sortBy = picked.key;
 		sortDir = 'best';
+
+		// On the narrow layout the rail is a drawer opened over the map; a pick is what a reader
+		// came in for, so it closes itself rather than waiting for a second tap back at the map.
+		railOpen = false;
 	}
 
 	function sortColumn(key: string) {
@@ -115,7 +132,10 @@
 
 <svelte:window
 	onkeydown={(event) => {
-		if (event.key === 'Escape') select(null);
+		if (event.key === 'Escape') {
+			select(null);
+			railOpen = false;
+		}
 	}}
 />
 
@@ -123,10 +143,17 @@
 	areas={compare.finland ? [compare.finland, ...areas] : areas}
 	{activeKey}
 	onpick={(area) => select(area.code)}
+	onmenu={() => (railOpen = !railOpen)}
 />
 
 <main class:is-wide={mode === 'table'}>
-	<IndicatorRail {activeKey} files={compare.files} polled={compare.polled} onpick={pickIndicator} />
+	<IndicatorRail
+		{activeKey}
+		files={compare.files}
+		polled={compare.polled}
+		onpick={pickIndicator}
+		open={railOpen}
+	/>
 
 	{#if mode !== 'table'}
 		<MapCard
@@ -148,6 +175,14 @@
 	{/if}
 
 	<aside class="side" class:is-open={drawerOpen}>
+		<!-- Only meaningful on the narrow layout, where this panel is a drawer covering the map —
+		     and, in table mode, covering the only other thing on screen. Without it there is no
+		     way back: the button that opened it (MapCard's panel-toggle) sits underneath, and in
+		     table mode isn't rendered at all. A normal flow item, not an overlay — DetailCard has
+		     its own top-right button (clear selection), and the two would sit right on top of
+		     each other if this one floated over the corner instead. -->
+		<button type="button" class="side-close" onclick={closeDrawer}>✕ {t('close')}</button>
+
 		{#if !compare.ok}
 			<p class="unavailable panel">{t('dataUnavailable')}</p>
 		{/if}
@@ -201,6 +236,12 @@
 		flex: none;
 	}
 
+	/* Only shown once the panel becomes a drawer (see the 1060px breakpoint below) — on the wide
+	   layout the panel never covers anything, so there's nothing to close. */
+	.side-close {
+		display: none;
+	}
+
 	@media (max-width: 1320px) {
 		main {
 			grid-template-columns: 192px minmax(340px, 1fr) 380px;
@@ -240,6 +281,36 @@
 
 		.side.is-open {
 			transform: none;
+		}
+
+		/* The drawer covers whatever opened it — MapCard's own panel-toggle included — so this
+		   is the one way back once it's open. */
+		.side-close {
+			display: block;
+			align-self: flex-end;
+			font: inherit;
+			font-size: 11.5px;
+			font-weight: 600;
+			padding: 6px 12px;
+			border: 0;
+			border-radius: 8px;
+			background: var(--navy);
+			color: #fff;
+			cursor: pointer;
+			flex: none;
+		}
+	}
+
+	/*
+	  Below this a fixed rail column has nowhere left to take its 176px from without crushing the
+	  map (or the table) into a sliver, so the rail leaves the grid entirely and becomes its own
+	  off-canvas drawer — same mechanism as `.side` above, opened from the header's menu button
+	  instead of by a selection. See IndicatorRail.svelte.
+	*/
+	@media (max-width: 640px) {
+		main,
+		.is-wide {
+			grid-template-columns: minmax(0, 1fr);
 		}
 	}
 </style>

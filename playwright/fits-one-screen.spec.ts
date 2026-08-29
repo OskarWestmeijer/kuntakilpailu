@@ -31,7 +31,7 @@ async function expectFitsOneScreen(page: Page) {
 	// page any taller — the rows at the bottom are simply cut off, silently. Measuring the list
 	// card against `main` is what catches that; the card scrolls internally instead.
 	const spill = await page.evaluate(() => {
-		const card = document.querySelector('main aside section.list');
+		const card = document.querySelector('main aside section.list-card');
 		const main = document.querySelector('main');
 
 		if (!card || !main) throw new Error('list card or main not found');
