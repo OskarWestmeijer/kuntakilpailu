@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import register from '../../../static/data/unemployment_register_kunnat_12r5.json';
-import population from '../../../static/data/population_register_kunnat_121w.json';
-import income from '../../../static/data/income_register_kunnat_14ww.json';
-import education from '../../../static/data/education_register_kunnat_12bs.json';
-import age from '../../../static/data/age_register_kunnat_11ra.json';
-import sex from '../../../static/data/sex_register_kunnat_11re.json';
+import register from '../../../data/fixtures/unemployment_register_kunnat_12r5.json';
+import population from '../../../data/fixtures/population_register_kunnat_121w.json';
+import income from '../../../data/fixtures/income_register_kunnat_14ww.json';
+import education from '../../../data/fixtures/education_register_kunnat_12bs.json';
+import age from '../../../data/fixtures/age_register_kunnat_11ra.json';
+import sex from '../../../data/fixtures/sex_register_kunnat_11re.json';
 import {
 	emptyAgeViews,
 	emptyCompareViews,
@@ -32,10 +32,13 @@ import type { FinlandMap, Kunta } from './finland';
 import type { PopulationStats } from './population';
 
 /**
- * These run against the *real* files in `static/data` — the same bytes the browser fetches —
- * so the whole client-side path is covered: fetch, parse, join onto geometry, roll up. The
- * per-parser specs next door cover the parsing in isolation; what's tested here is everything
- * that used to happen in the build-time loader.
+ * These run against the *real* exports in `data/fixtures` — PxWeb's own bytes, in the shape
+ * the browser fetches them — so the whole client-side path is covered: fetch, parse, join onto
+ * geometry, roll up. The per-parser specs next door cover the parsing in isolation; what's
+ * tested here is everything that used to happen in the build-time loader.
+ *
+ * The fixture rather than `static/data`, because that directory is gitignored build output the
+ * deploy workflow fetches fresh — these assertions need a vintage that holds still.
  */
 /**
  * Written by `scripts/fetch_statfi.py` on every run, so it isn't committed — its poll
@@ -88,7 +91,7 @@ const DATA_DIR: Record<string, unknown> = {
 	'manifest.json': manifest
 };
 
-/** Stands in for nginx: serves `static/data`, 404s anything else. */
+/** Stands in for nginx: serves the data directory, 404s anything else. */
 function serveDataDir(overrides: Record<string, Response | null> = {}) {
 	return vi.fn(async (url: string | URL) => {
 		const name = String(url).split('/').pop() ?? '';

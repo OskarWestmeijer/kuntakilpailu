@@ -5,11 +5,19 @@ The six exports this writes are *runtime* data, not build input: the browser rea
 ``/data/`` on page load (see ``src/lib/interactive/liveData.ts``), so the figures and the code
 move independently — a refresh is this script rewriting ``static/data`` and nothing else.
 
-The site is served as a static bundle from GitHub Pages, so there is no host to run this on:
-what it writes has to be committed for a deploy to pick it up.
+The site is a static bundle on GitHub Pages, so there is no host to run this on afterwards.
+It runs *before* the build instead: ``.github/workflows/deploy.yml`` calls it on a daily
+schedule and the build packages what it wrote into the artifact it publishes. Nothing it
+writes is committed — ``static/data`` is gitignored, and the frozen copy that the e2e suite
+and ``npm run dev`` use lives in ``data/fixtures``.
 
     python3 scripts/fetch_statfi.py --dry-run --verbose
     python3 scripts/fetch_statfi.py
+    python3 scripts/fetch_statfi.py --out data/fixtures   # move the frozen vintage forward
+
+Because it validates before it writes and exits non-zero on anything suspicious, a bad
+upstream release fails the deploy rather than blanking the map: Pages keeps serving the last
+successful build, so yesterday's figures stay up.
 
 Standard library only, on purpose: no venv and no pip.
 
@@ -532,7 +540,7 @@ def main(argv: list[str] | None = None) -> int:
         "--out",
         type=Path,
         default=Path("static/data"),
-        help="directory to write into (default: static/data, the copy committed to the repo)",
+        help="directory to write into (default: static/data, what the build packages)",
     )
     parser.add_argument(
         "--only",

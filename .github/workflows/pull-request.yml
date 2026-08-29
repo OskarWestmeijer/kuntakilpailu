@@ -6,6 +6,7 @@ on:
 
 env:
   NODE_VERSION: 24.12.0
+  PYTHON_VERSION: '3.13'
 
 jobs:
   build-and-test:
@@ -20,6 +21,16 @@ jobs:
       - run: npm run lint
       - run: npm run check
       - run: npm run test:unit -- --run
+
+      # The fetch script runs on every deploy now, so its tests gate a merge. Deliberately
+      # no live fetch on a PR: CI would depend on stat.fi being up, and the daily deploy is
+      # already the canary for an upstream schema change — it fails loudly and leaves the
+      # site up.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: python3 -m unittest discover -s scripts -p 'test_*.py'
+
       # Built without BASE_PATH on purpose: the e2e suite drives `npm run preview` at the
       # domain root. The sub-path build is exercised by the deploy workflow.
       - run: npm run build

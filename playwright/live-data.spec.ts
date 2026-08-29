@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 
 // The comparison map reads its figures from /data/ when the page opens, rather than having
 // them baked into the prerendered HTML — that is what lets `scripts/fetch_statfi.py` refresh
-// them without a rebuild. These tests cover the two things that only matter because of that:
+// them by rewriting a directory. These tests cover the two things that only matter because of that:
 // new numbers on disk really do reach the page, and a directory that is missing or broken
 // degrades instead of rendering nonsense.
 
@@ -38,7 +38,7 @@ function setRate(payload: RegisterExport, area: string, rate: string) {
 }
 
 test('a refreshed file on disk changes what the page shows', async ({ page }) => {
-	// Rauma reads 10,7 % from the committed export; pretend a refresh fetched a month where it
+	// Rauma reads 10,7 % from the fixture export; pretend a refresh fetched a month where it
 	// is 3,1 % instead. Nothing is rebuilt — only the served file differs.
 	await serveEditedRegister(page, (payload) => setRate(payload, 'KU684', '3.1'));
 
