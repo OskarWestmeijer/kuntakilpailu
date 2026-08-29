@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" data-theme="customtheme">
+<html lang="fi" data-theme="customtheme">
 	<head>
 		<meta charset="utf-8" />
 		<!--
@@ -23,6 +23,16 @@
 								: 'customtheme';
 
 					document.documentElement.setAttribute('data-theme', theme);
+				} catch (e) {}
+
+				// Same trick for the language: the page is prerendered in Finnish, so an English
+				// reader would otherwise see Finnish copy until hydration swapped it. `i18n.svelte.ts`
+				// reads this attribute back rather than reading storage a second time, so the two
+				// cannot disagree.
+				try {
+					if (localStorage.getItem('kuntakilpailu-lang') === 'en') {
+						document.documentElement.lang = 'en';
+					}
 				} catch (e) {}
 			})();
 		</script>

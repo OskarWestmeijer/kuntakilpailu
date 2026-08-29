@@ -1,6 +1,6 @@
 /**
- * The composite score behind `/interactive/compare`: several indicators, each from a different
- * statistics table, folded into one 0–100 figure per area.
+ * The composite score: six indicators, each from a different statistics table, folded into one
+ * 0–100 figure per municipality.
  *
  * Kept pure — no Svelte, no geometry, no fetching — so the formula is unit-testable on its own
  * and so adding a domain (education, economy, housing) is an edit to one array rather than to a
@@ -15,11 +15,12 @@
  * percentile so the number behind the rank is always in view.
  *
  * Ranks are computed over whatever set of areas is passed in, so a caller decides what "of 308"
- * means. The compare page ranks municipalities against all 308 and regions against the 19, and
- * never against a tab's subset — a kunta's score must not move when the Tampere tab is opened.
+ * means. Finland's own national figures are *not* in that set — they are placed into it after
+ * the fact by `placeValue`, so the country appearing as a reference row doesn't shift any
+ * municipality's rank.
  */
 
-import { DIVERGING_SCALE, NO_DATA_COLOR } from './unemployment';
+import { NO_DATA_COLOR } from './unemployment';
 
 export type Indicator<A> = {
 	/** Stable key, used for `{#each}` and in tests. */
@@ -182,9 +183,7 @@ export function competitionRanks(
 /**
  * Scores every area against the others in the same list.
  *
- * Returned keyed by area code because callers join it back onto their own area objects, and
- * because the compare page's Tampere tab looks up municipal scores that were computed over the
- * full national list rather than over its own eight.
+ * Returned keyed by area code because callers join it back onto their own area objects.
  */
 export function scoreAreas<A extends { code: string }>(
 	areas: A[],
@@ -289,67 +288,73 @@ export function scoreAreas<A extends { code: string }>(
 }
 
 /**
- * A diverging scale around 50: green is the better direction, as everywhere else on the site.
+ * The seven-step diverging palette every choropleth on this page uses, weak → strong.
  *
- * **These bands are applied to `scorePercentile`, not to `score`** — pass the wrong one and the
- * labels start lying. The edges (10 / 25 / 45 / 55 / 75 / 90) are percentile bands, so against a
- * percentile input each class holds a known share of the areas by construction: a tenth in each
- * tail, a fifth either side of the middle. Against a raw score they do not, because a mean of
- * ranks clusters towards the centre — that read 4/33/89/55/87/35/1 over the real six-indicator
- * exports, with one municipality in a class named "top 10 %".
+ * Applied to a **percentile**, not to a raw figure, and binned into equal sevenths of the
+ * percentile range — so each colour holds a seventh of the areas by construction, whichever
+ * indicator is on screen. That is what lets one palette serve six indicators on wildly
+ * different units plus the composite score, and what makes the legend's bin edges honest.
  *
- * 50 is a true midpoint either way: with percentile inputs it is the middle by construction.
+ * Direction is already handled upstream: `percentileRanks` flips for `higherIsBetter: false`,
+ * so an unemployment rate's red end is its high end without anything here knowing that.
+ *
+ * Green through yellow to red rather than the site's older green–grey–red: on this page the
+ * midpoint is "middling", which is a verdict rather than an absence, and yellow is the idiom
+ * every reader already knows for it. Each arm stays monotone in lightness out from the yellow,
+ * which is what keeps magnitude legible under red–green colour blindness.
  */
-/**
- * **A traffic light, not the site's shared `DIVERGING_SCALE`** — green through yellow to red,
- * where the other maps run green through neutral grey to red.
- *
- * The grey midpoint is right on those maps: it marks "at the reference figure", a place where the
- * measure has nothing to say. Here the midpoint is "middling", which is a verdict rather than an
- * absence, and yellow is the idiom every reader already knows for it. This is the only map with a
- * composite verdict on it, so it's the only one that gets the traffic light.
- *
- * Magnitude still survives red-green colour blindness, because each arm is monotone in lightness
- * from the yellow outwards — the property the grey-midpoint scales have too. Both arms pass all
- * four checks of the `dataviz` skill's `validate_palette.js --ordinal` against `MAP_SURFACE`
- * (light ends 2,07:1 green and 2,34:1 warm). Re-run per arm if they're re-picked; the yellow is
- * exempt from the light-end floor for the same reason the shared neutral grey is — a midpoint is
- * meant to recede.
- */
-export const SCORE_CLASSES = [
-	{ min: -Infinity, label: 'bottom 10 %', color: '#9a2929', ink: '#ffffff' },
-	{ min: 10, label: 'well below average', color: '#c25e28', ink: '#ffffff' },
-	{ min: 25, label: 'below average', color: '#e2913f', ink: 'var(--map-ink)' },
-	{ min: 45, label: 'about average', color: '#ecd15f', ink: 'var(--map-ink)' },
-	{ min: 55, label: 'above average', color: '#87bd5c', ink: 'var(--map-ink)' },
-	{ min: 75, label: 'well above average', color: '#4f9445', ink: 'var(--map-ink)' },
-	{ min: 90, label: 'top 10 %', color: '#1d6835', ink: '#ffffff' }
+export const SCORE_PALETTE = [
+	'#c2453b',
+	'#e06d4a',
+	'#f3a862',
+	'#f7d97f',
+	'#cfdc7a',
+	'#8fc06a',
+	'#4a9a5c'
 ] as const;
 
-/** Index of the neutral, "about average" class. */
-const AVERAGE_CLASS = 3;
+/**
+ * Colour for a percentile, 0–100. Areas with no figure are hatched rather than given a flat
+ * grey — see the `no-data` pattern in the map — so this returns the hatch's backing colour for
+ * null and callers switch to the pattern themselves.
+ *
+ * @param percentile A `ScorePart.percentile`, or `ScoreBreakdown.scorePercentile` for the
+ *   composite — never a raw `score`, which is a mean of ranks and clusters centrally.
+ */
+export function percentileColor(percentile: number | null): string {
+	if (percentile === null) return NO_DATA_COLOR;
 
-function scoreClassIndex(percentile: number | null): number {
-	return percentile === null
-		? AVERAGE_CLASS
-		: SCORE_CLASSES.findLastIndex((c) => percentile >= c.min);
+	return SCORE_PALETTE[Math.min(6, Math.floor((percentile / 100) * 7))];
 }
 
 /**
- * Areas with no score are hatched, same as on every other map — never given a flat grey.
+ * Where a figure would sit in a distribution it is not part of — how Finland's national figure
+ * is placed among the 308 municipalities without competing with them.
  *
- * @param percentile `ScoreBreakdown.scorePercentile`, not `score`.
+ * Kept separate from `percentileRanks` on purpose: the national figure is not a 309th area, and
+ * folding it in would shift every municipality's rank by its presence. Everywhere the result is
+ * shown it carries an "≈" for the same reason.
+ *
+ * @returns `rank` counts the areas strictly better, plus one; `percentile` is the share of areas
+ *   this figure is at least as good as, 0–100. Null for both when there is nothing to place, or
+ *   nothing to place it among.
  */
-export function scoreColorFor(percentile: number | null): string {
-	return percentile === null ? NO_DATA_COLOR : SCORE_CLASSES[scoreClassIndex(percentile)].color;
-}
+export function placeValue(
+	values: (number | null)[],
+	value: number | null,
+	higherIsBetter: boolean
+): { percentile: number | null; rank: number | null; ranked: number } {
+	const known = values.filter((v): v is number => v !== null);
 
-/** "above average", "top 10 %" — the words the panel's chip puts on the colour. */
-export function scoreLabelFor(percentile: number | null): string {
-	return percentile === null ? 'no score' : SCORE_CLASSES[scoreClassIndex(percentile)].label;
-}
+	if (value === null || known.length === 0) {
+		return { percentile: null, rank: null, ranked: known.length };
+	}
 
-/** Text colour for a chip filled with that class's colour, measured per colour in the palette. */
-export function inkOnScore(percentile: number | null): string {
-	return SCORE_CLASSES[scoreClassIndex(percentile)].ink;
+	const better = known.filter((v) => (higherIsBetter ? v > value : v < value)).length;
+
+	return {
+		percentile: ((known.length - better) / known.length) * 100,
+		rank: better + 1,
+		ranked: known.length
+	};
 }

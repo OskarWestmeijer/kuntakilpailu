@@ -5,6 +5,8 @@ import { expect, test, type Page } from '@playwright/test';
 // them by rewriting a directory. These tests cover the two things that only matter because of that:
 // new numbers on disk really do reach the page, and a directory that is missing or broken
 // degrades instead of rendering nonsense.
+//
+// The page defaults to Finnish, so these stay in it — see `compare.spec.ts`.
 
 const REGISTER = '**/data/unemployment_register_kunnat_12r5.json';
 
@@ -45,16 +47,20 @@ test('a refreshed file on disk changes what the page shows', async ({ page }) =>
 	await page.goto('./');
 
 	const panel = page.getByRole('complementary');
-	// Wait for the figures to land before hovering. A hover that arrives before hydration sets
+	const rauma = page.getByRole('button', { name: /^Rauma,/ });
+
+	// Wait for the figures to land before clicking. A click that arrives before hydration sets
 	// no state and is never replayed, so the panel would sit on its no-selection state for the
-	// rest of the test — an intermittent failure rather than a consistent one.
-	await expect(page.getByText(/^Data from /)).toBeVisible();
-	await page.getByRole('button', { name: /^Rauma,/ }).hover();
+	// rest of the test — an intermittent failure rather than a consistent one. A real fill colour
+	// only appears once the fetch has resolved.
+	await expect(rauma).toHaveAttribute('fill', /^#/);
+	await rauma.click();
 
 	await expect(panel.getByRole('heading', { name: 'Rauma' })).toBeVisible();
-	// The Jobs row carries the published figure, so the new number is visible on its own before
-	// anything derived from it is.
-	await expect(panel.getByRole('row', { name: /^Jobs 3,1 %/ })).toBeVisible();
+	// The unemployment row carries the published figure, so the new number is visible on its
+	// own before anything derived from it is.
+	const row = panel.locator('.statrow').filter({ hasText: 'TYÖTTÖMYYSASTE' });
+	await expect(row).toContainText('3,1 %');
 });
 
 test('the poll date comes from the manifest the script writes', async ({ page }) => {
@@ -65,9 +71,15 @@ test('the poll date comes from the manifest the script writes', async ({ page })
 	await page.goto('./');
 
 	// Two different things, deliberately labelled apart: what the figures describe, and when we
-	// last asked for them. The period is a list because the tables are on independent release
-	// cycles and quoting one of them would silently misdate the others.
-	await expect(page.getByText(/^Data from .* · polled 11 Aug 2026$/)).toBeVisible();
+	// last asked for them. Both sit behind the rail's "Lähde" button rather than spelled out on
+	// the page, so it only renders once the figures — and with them the sources — have loaded.
+	const source = page.getByRole('navigation', { name: 'Mittari' }).getByRole('button', {
+		name: 'Lähde'
+	});
+	await expect(source).toBeVisible();
+	await source.hover();
+
+	await expect(page.getByText(/haettu 11\.8\.2026/)).toBeVisible();
 });
 
 test('a missing manifest drops the poll date instead of showing a placeholder', async ({
@@ -77,8 +89,15 @@ test('a missing manifest drops the poll date instead of showing a placeholder', 
 
 	await page.goto('./');
 
-	await expect(page.getByText(/^Data from /)).toBeVisible();
-	await expect(page.getByText('polled')).toHaveCount(0);
+	// The figures still load and the source popover still opens...
+	const source = page.getByRole('navigation', { name: 'Mittari' }).getByRole('button', {
+		name: 'Lähde'
+	});
+	await source.hover();
+
+	await expect(page.getByText('Tilastokeskus').first()).toBeVisible();
+	// ...but with nothing to say when the figures were last polled.
+	await expect(page.getByText('haettu')).toHaveCount(0);
 });
 
 test('an unreadable data directory leaves an outline map and says so', async ({ page }) => {
@@ -89,7 +108,7 @@ test('an unreadable data directory leaves an outline map and says so', async ({ 
 	const panel = page.getByRole('complementary');
 
 	// The page itself is fine — geometry is baked in, so all 308 municipalities still render.
-	const map = page.getByRole('img', { name: 'Score by municipality in Finland' });
+	const map = page.getByRole('img', { name: 'Kokonaispisteet kunnittain' });
 	await expect(map.getByRole('button')).toHaveCount(308);
 
 	// But they're hatched rather than coloured, and the panel says why instead of leaving a
@@ -98,7 +117,7 @@ test('an unreadable data directory leaves an outline map and says so', async ({ 
 		'fill',
 		'url(#no-data)'
 	);
-	await expect(panel.getByText('Live figures unavailable')).toBeVisible();
+	await expect(panel.getByText('Tietoja ei saatavilla')).toBeVisible();
 });
 
 test('one missing file takes the whole score with it', async ({ page }) => {
@@ -115,7 +134,7 @@ test('one missing file takes the whole score with it', async ({ page }) => {
 
 	const panel = page.getByRole('complementary');
 
-	await expect(panel.getByText('Live figures unavailable')).toBeVisible();
+	await expect(panel.getByText('Tietoja ei saatavilla')).toBeVisible();
 	await expect(page.getByRole('button', { name: /^Rauma,/ })).toHaveAttribute(
 		'fill',
 		'url(#no-data)'

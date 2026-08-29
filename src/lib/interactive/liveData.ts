@@ -42,13 +42,24 @@ import {
 	EMPTY_BALANCE_STATS,
 	type BalanceStats
 } from './balance';
-import { scoreAreas, type Indicator, type ScoreBreakdown } from './score';
-import { count, percent, decimal } from './format';
-import { shortRegionName, TAMPERE_REGION } from './regions';
+import {
+	MIN_COVERAGE,
+	placeValue,
+	scoreAreas,
+	type Indicator,
+	type ScoreBreakdown,
+	type ScorePart
+} from './score';
+import { count, decimal, percent, signedDecimal, type Lang } from './format';
+import { TAMPERE_REGION } from './regions';
 
 /** What `scripts/fetch_statfi.py` writes into `static/data`. Filenames carry the PxWeb table
  *  id, not the period — they are overwritten in place, and every parser reads the period
  *  from the file. */
+/** For the synthetic roll-up rows below, which have no geometry: nothing draws them, so there
+ *  is no box to fit. Real areas get theirs from `toPathData`. */
+const NO_BBOX: [number, number, number, number] = [0, 0, 0, 0];
+
 const FILES = {
 	unemployment: 'unemployment_register_kunnat_12r5.json',
 	population: 'population_register_kunnat_121w.json',
@@ -105,6 +116,13 @@ function parse<T>(payload: unknown | null, parser: (px: PxWebExport) => T): T | 
 
 function polledFor(manifest: Manifest | null, filename: string): string | null {
 	return manifest?.files?.[filename]?.polled ?? manifest?.polled ?? null;
+}
+
+/** When Statistics Finland itself published the file — as opposed to `polled`, when we last
+ *  asked. Per file only; there is no site-wide fallback because a run that changes nothing
+ *  moves `polled` on every file but `updated` on none of them. */
+function updatedFor(manifest: Manifest | null, filename: string): string | null {
+	return manifest?.files?.[filename]?.updated ?? null;
 }
 
 /** Replaces every area's stats with the freshly parsed ones, keeping name/code/path/landArea. */
@@ -215,6 +233,8 @@ function rollUp(name: string, areas: PopulationArea[]): PopulationArea {
 		...stats,
 		name,
 		code: '',
+		nameSwedish: null,
+		bbox: NO_BBOX,
 		landArea,
 		d: '',
 		// A roll-up spans regions (or is the whole country), so it belongs to none.
@@ -294,6 +314,8 @@ export async function loadPopulationViews(geometry: PopulationGeometry): Promise
 		...data.national,
 		name: 'Finland',
 		code: '',
+		nameSwedish: null,
+		bbox: NO_BBOX,
 		landArea: countryLandArea,
 		d: '',
 		regionName: '',
@@ -372,7 +394,16 @@ export type IncomeViews = Record<'finland' | 'maakunta' | 'tampere', IncomeView>
 
 /** The whole-country figures shaped like an area, so the panel reads one type either way. */
 function asArea(name: string, stats: IncomeStats): IncomeArea {
-	return { ...stats, name, code: '', landArea: null, d: '', regionName: '' };
+	return {
+		...stats,
+		name,
+		code: '',
+		nameSwedish: null,
+		landArea: null,
+		d: '',
+		bbox: NO_BBOX,
+		regionName: ''
+	};
 }
 
 export function emptyIncomeViews(geometry: IncomeGeometry): IncomeViews {
@@ -488,7 +519,16 @@ export type EducationViews = Record<'finland' | 'maakunta' | 'tampere', Educatio
 
 /** Figures shaped like an area, so the panel reads one type whether or not something is selected. */
 function asEducationArea(name: string, stats: EducationStats): EducationArea {
-	return { ...stats, name, code: '', landArea: null, d: '', regionName: '' };
+	return {
+		...stats,
+		name,
+		code: '',
+		nameSwedish: null,
+		landArea: null,
+		d: '',
+		bbox: NO_BBOX,
+		regionName: ''
+	};
 }
 
 export function emptyEducationViews(geometry: EducationGeometry): EducationViews {
@@ -597,7 +637,16 @@ export type AgeViews = Record<'finland' | 'maakunta' | 'tampere', AgeView>;
 
 /** Figures shaped like an area, so the panel reads one type whether or not something is selected. */
 function asAgeArea(name: string, stats: AgeStats): AgeArea {
-	return { ...stats, name, code: '', landArea: null, d: '', regionName: '' };
+	return {
+		...stats,
+		name,
+		code: '',
+		nameSwedish: null,
+		landArea: null,
+		d: '',
+		bbox: NO_BBOX,
+		regionName: ''
+	};
 }
 
 export function emptyAgeViews(geometry: AgeGeometry): AgeViews {
@@ -692,7 +741,16 @@ export type BalanceViews = Record<'finland' | 'maakunta' | 'tampere', BalanceVie
  * constant, so there is no reference figure to carry across tabs at all.
  */
 function asBalanceArea(name: string, stats: BalanceStats): BalanceArea {
-	return { ...stats, name, code: '', landArea: null, d: '', regionName: '' };
+	return {
+		...stats,
+		name,
+		code: '',
+		nameSwedish: null,
+		landArea: null,
+		d: '',
+		bbox: NO_BBOX,
+		regionName: ''
+	};
 }
 
 export function emptyBalanceViews(geometry: BalanceGeometry): BalanceViews {
@@ -773,14 +831,13 @@ export async function loadBalanceViews(geometry: BalanceGeometry): Promise<Balan
 // -------------------------------------------------------------------------- compare
 
 /**
- * The composite score's areas carry one figure per domain, plus the breakdown `score.ts`
- * computes from them. Adding a domain means one more field here and one more `INDICATORS`
- * entry — nothing else in this module changes shape.
+ * One municipality, with a figure per domain and the breakdown `score.ts` computes from them.
+ * Adding a domain means one more field here and one more `INDICATORS` entry.
  */
 export type CompareArea = KuntaBase & {
 	/** Registered unemployment rate, from 12r5. Lower is better. */
 	rate: number | null;
-	/** Population change per 1 000, from 121w. Higher is better. */
+	/** Population change over the year as a percentage of the population, from 121w. */
 	change: number | null;
 	/** Median disposable income per consumption unit, from 14ww. Higher is better. */
 	income: number | null;
@@ -788,26 +845,37 @@ export type CompareArea = KuntaBase & {
 	education: number | null;
 	/** Mean age of the population, from 11ra. Lower is better. */
 	age: number | null;
-	/** Points away from an even split of women and men, from 11re. Lower is better. */
+	/**
+	 * Points away from an even split of women and men, from 11re. Lower is better.
+	 *
+	 * This is the figure the *score* uses; `menShare` is the figure the panel *shows*. Splitting
+	 * them is what lets the reader see "50,1 %" — a number that means something on its own —
+	 * while the ranking still treats 47 % and 53 % as equally lopsided. A share alone can't be
+	 * ranked, because neither end of it is the good end.
+	 */
 	balance: number | null;
+	/** Men as a share of the population, from 11re. Shown, never ranked — see `balance`. */
+	menShare: number | null;
+	/** Headcount at the end of the period, from 11ra. Shown in the list and detail card. */
+	population: number | null;
 	score: ScoreBreakdown;
-	/** The maakunta this municipality is in, full name — the panel shows it whole and the
-	 *  ranking shortens it at render (`shortRegionName`), so the data stays the published one.
-	 *  Empty on the Region tab, whose areas *are* maakunnat, and before the fetch. */
-	regionName: string;
+	/** True only for the Finland reference row, which is placed in the ranking rather than
+	 *  competing in it. Everywhere it shows, it carries an "≈". */
+	isReference?: boolean;
 };
 
 /**
  * The domains the score folds together, in panel order. Equal weights — see `MIN_COVERAGE` in
  * `score.ts` for why an area missing any of them isn't scored at all.
  *
- * This array is the extension point: education, economy and housing each become one more entry
- * once their table is fetched and parsed, and the page picks them up without further edits.
+ * `label` here is an internal handle, not display copy: it is baked into `ScorePart` at scoring
+ * time, and the score must not have to be recomputed when the reader switches language. What
+ * the page actually prints comes from `INDICATOR_META` below, which takes a language.
  */
 export const INDICATORS: Indicator<CompareArea>[] = [
 	{
 		key: 'jobs',
-		label: 'Jobs',
+		label: 'Unemployment',
 		valueOf: (area) => area.rate,
 		format: percent,
 		higherIsBetter: false,
@@ -815,22 +883,15 @@ export const INDICATORS: Indicator<CompareArea>[] = [
 	},
 	{
 		key: 'people',
-		label: 'People',
+		label: 'Population change',
 		valueOf: (area) => area.change,
-		// Always signed, with a real minus — the sign is the whole point of a change figure, and
-		// `decimal` alone would render an ASCII hyphen and no plus. Per-mille rather than the
-		// population map's spelled-out "per 1 000": this one sits in a table column narrow enough
-		// that the words wrapped onto a second line.
-		format: (value) =>
-			value === null
-				? 'no data'
-				: `${value > 0 ? '+' : value < 0 ? '−' : ''}${decimal(Math.abs(value))} ‰`,
+		format: (value) => (value === null ? 'no data' : `${signedDecimal(value)} %`),
 		higherIsBetter: true,
 		weight: 1
 	},
 	{
 		key: 'income',
-		label: 'Income',
+		label: 'Median income',
 		valueOf: (area) => area.income,
 		format: (value) => (value === null ? 'no data' : `${count(value)} €`),
 		higherIsBetter: true,
@@ -838,7 +899,7 @@ export const INDICATORS: Indicator<CompareArea>[] = [
 	},
 	{
 		key: 'education',
-		label: 'Education',
+		label: 'Higher education',
 		valueOf: (area) => area.education,
 		format: percent,
 		higherIsBetter: true,
@@ -846,31 +907,168 @@ export const INDICATORS: Indicator<CompareArea>[] = [
 	},
 	{
 		key: 'age',
-		label: 'Age',
+		label: 'Average age',
 		valueOf: (area) => area.age,
-		format: (value) => (value === null ? 'no data' : `${decimal(value)} yrs`),
+		format: (value) => (value === null ? 'no data' : `${decimal(value)} v`),
 		// A judgement rather than a fact, and the only indicator where the direction is arguable:
-		// a younger population is counted as the better side here. The Sources popover says so.
+		// a younger population is counted as the better side here.
 		higherIsBetter: false,
 		weight: 1
 	},
 	{
 		key: 'balance',
-		label: 'Balance',
+		label: 'Share of men',
 		valueOf: (area) => area.balance,
 		format: (value) => (value === null ? 'no data' : `${decimal(value)} pts`),
-		// Distance from an even split of women and men, so less is better.
+		// Distance from an even split, so less is better.
 		//
 		// Caveat this one carries and the others don't: it correlates -0,47 with log population,
 		// because in a municipality of 101 people one person is a whole percentage point. The
 		// smallest places are mechanically more lopsided, and this indicator charges them for it.
 		// It earns its place anyway by being the *least* redundant of the six — correlation with
-		// the score built from the other five is only -0,24, against age's -0,77. The Sources
-		// popover states the caveat rather than burying it here.
+		// the score built from the other five is only -0,24, against age's -0,77.
 		higherIsBetter: false,
 		weight: 1
 	}
 ];
+
+/**
+ * Display metadata: what the rail, the map header and the detail card call each indicator, in
+ * both languages, and how its figure is rendered.
+ *
+ * Separate from `INDICATORS` because scoring is language-independent and must stay that way —
+ * switching to English re-renders the page but never re-ranks the country. The composite score
+ * leads the list and belongs to no group, which is exactly how the rail draws it.
+ *
+ * `figureOf` is the number the reader sees, which is not always the number the score ranks:
+ * see `CompareArea.balance`.
+ */
+export type IndicatorMeta = {
+	key: string;
+	fi: string;
+	en: string;
+	descFi: string;
+	descEn: string;
+	/** Rail grouping. Empty for the score, which sits above the groups. */
+	groupFi: string;
+	groupEn: string;
+	figureOf: (area: CompareArea) => number | null;
+	display: (value: number | null, lang: Lang) => string;
+};
+
+const noData = (lang: Lang) => (lang === 'fi' ? 'ei tietoa' : 'no data');
+
+export const INDICATOR_META: IndicatorMeta[] = [
+	{
+		key: 'score',
+		fi: 'Kokonaispisteet',
+		en: 'Score',
+		descFi: 'Kuusi mittaria yhdistettynä yhdeksi pisteluvuksi (0–100).',
+		descEn: 'Six indicators combined into a single score (0–100).',
+		groupFi: '',
+		groupEn: '',
+		figureOf: (area) => area.score.score,
+		display: (value, lang) =>
+			value === null ? (lang === 'fi' ? 'ei pisteitä' : 'no score') : decimal(value, 1, lang)
+	},
+	{
+		key: 'jobs',
+		fi: 'Työttömyysaste',
+		en: 'Unemployment',
+		descFi: 'Työttömien työnhakijoiden osuus työvoimasta.',
+		descEn: 'Registered jobseekers as a share of the labour force.',
+		groupFi: 'Työ',
+		groupEn: 'Jobs',
+		figureOf: (area) => area.rate,
+		display: (value, lang) => (value === null ? noData(lang) : percent(value, lang))
+	},
+	{
+		key: 'people',
+		fi: 'Väestönmuutos',
+		en: 'Population change',
+		descFi: 'Väkiluvun kokonaismuutos edellisestä vuodesta.',
+		descEn: 'Total change in population over the past year.',
+		groupFi: 'Väestö',
+		groupEn: 'People',
+		figureOf: (area) => area.change,
+		display: (value, lang) => (value === null ? noData(lang) : `${signedDecimal(value, 1, lang)} %`)
+	},
+	{
+		key: 'income',
+		fi: 'Mediaanitulot',
+		en: 'Median income',
+		descFi: '18 vuotta täyttäneiden käytettävissä olevien rahatulojen mediaani.',
+		descEn: 'Median disposable income of residents aged 18 and over.',
+		groupFi: 'Talous',
+		groupEn: 'Economy',
+		figureOf: (area) => area.income,
+		display: (value, lang) => (value === null ? noData(lang) : `${count(value)} €`)
+	},
+	{
+		key: 'education',
+		fi: 'Korkeakoulutetut',
+		en: 'Higher education',
+		descFi: 'Korkea-asteen tutkinnon suorittaneiden osuus 15 vuotta täyttäneistä.',
+		descEn: 'Share of residents aged 15 and over with a tertiary degree.',
+		groupFi: 'Koulutus',
+		groupEn: 'Education',
+		figureOf: (area) => area.education,
+		display: (value, lang) => (value === null ? noData(lang) : percent(value, lang))
+	},
+	{
+		key: 'age',
+		fi: 'Keski-ikä',
+		en: 'Average age',
+		descFi: 'Asukkaiden keski-ikä vuosina.',
+		descEn: 'Mean age of residents, in years.',
+		groupFi: 'Väestö',
+		groupEn: 'People',
+		figureOf: (area) => area.age,
+		display: (value, lang) =>
+			value === null ? noData(lang) : `${decimal(value, 1, lang)} ${lang === 'fi' ? 'v' : 'yr'}`
+	},
+	{
+		key: 'balance',
+		fi: 'Miesten osuus',
+		en: 'Share of men',
+		descFi: 'Miesten osuus väestöstä; tasapaino on 50 %:ssa.',
+		descEn: 'Men as a share of the population; balance sits at 50 %.',
+		groupFi: 'Väestö',
+		groupEn: 'People',
+		// The share, not the deviation the score ranks — see `CompareArea.balance`.
+		figureOf: (area) => area.menShare,
+		display: (value, lang) => (value === null ? noData(lang) : percent(value, lang))
+	}
+];
+
+export const metaFor = (key: string): IndicatorMeta =>
+	INDICATOR_META.find((meta) => meta.key === key) ?? INDICATOR_META[0];
+
+export const indicatorName = (meta: IndicatorMeta, lang: Lang): string =>
+	lang === 'fi' ? meta.fi : meta.en;
+
+export const indicatorDesc = (meta: IndicatorMeta, lang: Lang): string =>
+	lang === 'fi' ? meta.descFi : meta.descEn;
+
+/**
+ * The rail's shape: the score first and groupless, then one block per group in the order the
+ * groups first appear. Grouping by first appearance rather than by a fixed list is what keeps
+ * "Väestö" holding population change, average age and the sex ratio together while they stay in
+ * panel order everywhere else.
+ */
+export function indicatorGroups(lang: Lang): { group: string; items: IndicatorMeta[] }[] {
+	const out: { group: string; items: IndicatorMeta[] }[] = [];
+
+	for (const meta of INDICATOR_META) {
+		const group = lang === 'fi' ? meta.groupFi : meta.groupEn;
+		const existing = out.find((entry) => entry.group === group);
+
+		if (existing) existing.items.push(meta);
+		else out.push({ group, items: [meta] });
+	}
+
+	return out;
+}
 
 const EMPTY_SCORE: ScoreBreakdown = {
 	score: null,
@@ -889,88 +1087,97 @@ const EMPTY_SCORE: ScoreBreakdown = {
 	isPartial: true
 };
 
-export type CompareView = {
-	areas: CompareArea[];
-	viewBox: string;
-	/** Every table's period, since they're released on independent cycles. */
-	period: string;
-	populationPeriod: string;
-	incomePeriod: string;
-	educationPeriod: string;
-	agePeriod: string;
-	balancePeriod: string;
-	polled: string | null;
-	populationPolled: string | null;
-	incomePolled: string | null;
-	educationPolled: string | null;
-	agePolled: string | null;
-	balancePolled: string | null;
+/** One of the six tables behind the score, for the source popover: which indicator it feeds,
+ *  who published it, what period it covers, and the two dates that answer "is this current" —
+ *  when Statistics Finland released it and when this site last asked. */
+export type SourceFile = {
+	key: string;
 	source: string;
-	populationSource: string;
-	incomeSource: string;
-	educationSource: string;
-	ageSource: string;
-	balanceSource: string;
+	period: string;
+	updated: string | null;
+	polled: string | null;
 };
 
-export type CompareViews = Record<'finland' | 'maakunta' | 'tampere', CompareView>;
+export type Compare = {
+	areas: CompareArea[];
+	/** The whole country, placed among the municipalities rather than competing with them.
+	 *  Null until the figures land. */
+	finland: CompareArea | null;
+	viewBox: string;
+	/** Every table's period, deduplicated and newest first — the tables are on independent
+	 *  release cycles, so quoting one of them would silently misdate the others. */
+	periods: string[];
+	/** The organisations behind those tables — publishers only, see `publishersOf`. */
+	sources: string[];
+	/** When the refresh last asked Statistics Finland, over all six files (ISO, UTC). The only
+	 *  signal that the daily deploy is still running. */
+	polled: string | null;
+	/** The six tables individually — what the aggregated `periods`/`sources`/`polled` above
+	 *  collapse into one line, kept apart for the source popover's per-file detail. Empty until
+	 *  the figures load, same as everything else. */
+	files: SourceFile[];
+	/** False when any of the six files is missing or unreadable. Every indicator feeds the
+	 *  score, so one missing table blanks the map rather than quietly re-ranking on five. */
+	ok: boolean;
+};
 
-/** Geometry is identical to the population page's — the Region tab needs `membersOf` for the
- *  same reason: 121w has no region rows, so its regional figures are rolled up here. */
-export type CompareGeometry = PopulationGeometry;
+export type CompareGeometry = { finland: FinlandMap<PopulationStats> };
 
-function blankArea(area: {
-	code: string;
-	name: string;
-	d: string;
-	regionName: string;
-}): CompareArea {
+function blankArea(area: KuntaBase): CompareArea {
 	return {
-		...area,
-		landArea: null,
+		name: area.name,
+		code: area.code,
+		nameSwedish: area.nameSwedish,
+		landArea: area.landArea,
+		d: area.d,
+		bbox: area.bbox,
 		rate: null,
 		change: null,
 		income: null,
 		education: null,
 		age: null,
 		balance: null,
+		menShare: null,
+		population: null,
 		score: EMPTY_SCORE
 	};
 }
 
-export function emptyCompareViews(geometry: CompareGeometry): CompareViews {
-	const names = regionNames(geometry);
-	const empty = (map: FinlandMap<PopulationStats>): CompareView => ({
-		areas: withRegion(map.kuntas, names).map(blankArea),
-		viewBox: map.viewBox,
-		period: '',
-		populationPeriod: '',
-		incomePeriod: '',
-		educationPeriod: '',
-		agePeriod: '',
-		balancePeriod: '',
-		polled: null,
-		populationPolled: null,
-		incomePolled: null,
-		educationPolled: null,
-		agePolled: null,
-		balancePolled: null,
-		source: '',
-		populationSource: '',
-		incomeSource: '',
-		educationSource: '',
-		ageSource: '',
-		balanceSource: ''
-	});
-
+export function emptyCompare(geometry: CompareGeometry): Compare {
 	return {
-		finland: empty(geometry.finland),
-		maakunta: empty(geometry.maakunta),
-		tampere: empty(geometry.tampere)
+		areas: geometry.finland.kuntas.map(blankArea),
+		finland: null,
+		viewBox: geometry.finland.viewBox,
+		periods: [],
+		sources: [],
+		polled: null,
+		files: [],
+		ok: false
 	};
 }
 
-export async function loadCompareViews(geometry: CompareGeometry): Promise<CompareViews> {
+/** Newest first, so the provenance line leads with the most recent release. */
+const distinct = (values: (string | null | undefined)[]): string[] =>
+	[...new Set(values.filter((value): value is string => !!value))].sort().reverse();
+
+/**
+ * The organisations behind the six tables, from PxWeb's own source strings.
+ *
+ * Those strings name the table as well as its publisher — "Tilastokeskus, väestörakenne" — and
+ * one of them names two publishers at once ("Tilastokeskus, siviilisäädyn muutokset & KEHA-keskus,
+ * työnvälitystilasto"). Six of them printed whole is a paragraph. Splitting on the ampersand
+ * first and then taking what precedes each comma leaves the two names the footer actually needs.
+ */
+function publishersOf(sources: string[]): string[] {
+	const names = sources
+		.flatMap((source) => source.split('&'))
+		.map((fragment) => fragment.split(',')[0].trim())
+		.filter(Boolean);
+
+	return [...new Set(names)];
+}
+
+export async function loadCompare(geometry: CompareGeometry): Promise<Compare> {
 	const [registerRaw, populationRaw, incomeRaw, educationRaw, ageRaw, balanceRaw, manifest] =
 		await Promise.all([
 			fetchExport(FILES.unemployment),
@@ -983,199 +1190,221 @@ export async function loadCompareViews(geometry: CompareGeometry): Promise<Compa
 		]);
 
 	const register = parse(registerRaw, (px) => toUnemploymentData(px, 'KU'));
-	const registerRegions = parse(registerRaw, (px) => toUnemploymentData(px, 'MK'));
 	const population = parse(populationRaw, toPopulationData);
 	const income = parse(incomeRaw, (px) => toIncomeData(px, 'KU'));
-	const incomeRegions = parse(incomeRaw, (px) => toIncomeData(px, 'MK'));
 	const education = parse(educationRaw, (px) => toEducationData(px, 'KU'));
-	const educationRegions = parse(educationRaw, (px) => toEducationData(px, 'MK'));
 	const age = parse(ageRaw, (px) => toAgeData(px, 'KU'));
-	const ageRegions = parse(ageRaw, (px) => toAgeData(px, 'MK'));
-	// 11re publishes no MK rows, so unlike the other five the regional figure is rolled up below.
 	const balance = parse(balanceRaw, toBalanceData);
 
-	const blank = emptyCompareViews(geometry);
+	const blank = emptyCompare(geometry);
 
-	if (!register && !population && !income && !education && !age && !balance) return blank;
+	// Every indicator feeds the score, so a single missing table is as bad as all six missing:
+	// the coverage floor would leave every municipality unscored anyway. Fail the whole view
+	// rather than render a country of hatched shapes with no explanation.
+	if (!register || !population || !income || !education || !age || !balance) return blank;
 
-	/** One accessor per indicator field, so a new domain is an extra key here rather than an
-	 *  extra parameter. They differ per area level: most tabs read an export's own rows, while
-	 *  the Region tab rolls population up (121w has no region rows to read). */
-	type Accessors = Record<
-		'rate' | 'change' | 'income' | 'education' | 'age' | 'balance',
-		(code: string) => number | null
-	>;
+	/** Population change as a percentage. Reuses the per-1 000 helper for its null handling and
+	 *  its guard against a zero denominator, then rescales — the design shows a percentage. */
+	const changePercentOf = (stats: PopulationStats | undefined) => {
+		if (!stats) return null;
 
-	const join = (areas: CompareArea[], of: Accessors): CompareArea[] =>
-		areas.map((area) => ({
-			...area,
-			rate: of.rate(area.code),
-			change: of.change(area.code),
-			income: of.income(area.code),
-			education: of.education(area.code),
-			age: of.age(area.code),
-			balance: of.balance(area.code)
-		}));
+		const perThousand = changePer1000(stats.totalChange, stats.population);
 
-	const rateOf = (code: string) => register?.stats.get(code)?.rate ?? null;
-	const populationChangeOf = (code: string) => {
-		const stats = population?.stats.get(code);
-
-		return stats ? changePer1000(stats.totalChange, stats.population) : null;
+		return perThousand === null ? null : perThousand / 10;
 	};
-	const incomeOf = (code: string) => income?.stats.get(code)?.medianIncome ?? null;
-	const educationOf = (code: string) => education?.stats.get(code)?.tertiaryShare ?? null;
-	const ageOf = (code: string) => age?.stats.get(code)?.averageAge ?? null;
-	const balanceOf = (code: string) => imbalance(balance?.stats.get(code)?.womenShare ?? null);
 
-	// Municipal figures, joined once and scored against all 308 — never against a tab's own
-	// subset. A municipality's score has to mean the same thing whichever tab it's seen on.
-	// `blank` already carries each area's maakunta — it comes from the geometry, not the
-	// statistics, so it's known before the fetch and survives the join untouched.
-	const municipal = join(blank.finland.areas, {
-		rate: rateOf,
-		change: populationChangeOf,
-		income: incomeOf,
-		education: educationOf,
-		age: ageOf,
-		balance: balanceOf
+	const figures = (code: string) => {
+		const balanceStats = balance.stats.get(code);
+		const womenShare = balanceStats?.womenShare ?? null;
+
+		return {
+			rate: register.stats.get(code)?.rate ?? null,
+			change: changePercentOf(population.stats.get(code)),
+			income: income.stats.get(code)?.medianIncome ?? null,
+			education: education.stats.get(code)?.tertiaryShare ?? null,
+			age: age.stats.get(code)?.averageAge ?? null,
+			balance: imbalance(womenShare),
+			menShare: womenShare === null ? null : 100 - womenShare,
+			population: age.stats.get(code)?.population ?? null
+		};
+	};
+
+	const joined = blank.areas.map((area) => ({ ...area, ...figures(area.code) }));
+	const scores = scoreAreas(joined, INDICATORS);
+	const areas = joined.map((area) => ({
+		...area,
+		score: scores.get(area.code) ?? EMPTY_SCORE
+	}));
+
+	const nationalWomenShare = balance.national.womenShare;
+	const national: Omit<CompareArea, 'score'> = {
+		name: 'Suomi',
+		code: FINLAND_CODE,
+		nameSwedish: 'Finland',
+		// Summed from the municipalities rather than hardcoded: it is the same land area by
+		// definition, and a constant here would be a second source of truth to keep current.
+		landArea: areas.reduce((sum, area) => sum + (area.landArea ?? 0), 0) || null,
+		d: '',
+		bbox: NO_BBOX,
+		rate: register.national.rate,
+		change: changePercentOf(population.national),
+		income: income.national.medianIncome,
+		education: education.national.tertiaryShare,
+		age: age.national.averageAge,
+		balance: imbalance(nationalWomenShare),
+		menShare: nationalWomenShare === null ? null : 100 - nationalWomenShare,
+		population: age.national.population,
+		isReference: true
+	};
+
+	const fileDates = (filename: string) => ({
+		updated: updatedFor(manifest, filename),
+		polled: polledFor(manifest, filename)
 	});
-
-	// The Region tab: 12r5, 14ww and 12bs all publish their own MK rows, but 121w has none, so
-	// only the population figure is rolled up from each region's municipalities (the grouping
-	// `membership.ts` derived at build time). Income *could not* be rolled up in any case — a
-	// median isn't additive, which is why reading the published row matters here rather than
-	// merely being convenient. Regions are ranked against the other 18, not against the 308 —
-	// they're a different kind of area, and the Sources popover says so.
-	const regionAreas = join(blank.maakunta.areas, {
-		rate: (code) => registerRegions?.stats.get(code)?.rate ?? null,
-		change: (code) => {
-			const members = geometry.membersOf[code] ?? [];
-			const stats = aggregatePopulationStats(
-				members.map((member) => population?.stats.get(member) ?? EMPTY_POPULATION_STATS)
-			);
-
-			return changePer1000(stats.totalChange, stats.population);
-		},
-		income: (code) => incomeRegions?.stats.get(code)?.medianIncome ?? null,
-		education: (code) => educationRegions?.stats.get(code)?.tertiaryShare ?? null,
-		age: (code) => ageRegions?.stats.get(code)?.averageAge ?? null,
-		// Rolled up, like the population change beside it: 11re has no region rows to read.
-		balance: (code) => {
-			const members = (geometry.membersOf[code] ?? []).map(
-				(member) => balance?.stats.get(member) ?? EMPTY_BALANCE_STATS
-			);
-
-			return imbalance(aggregateBalanceStats(members).womenShare);
-		}
-	});
-
-	const common = {
-		period: register?.period ?? '',
-		populationPeriod: population?.period ?? '',
-		incomePeriod: income?.period ?? '',
-		educationPeriod: education?.period ?? '',
-		agePeriod: age?.period ?? '',
-		balancePeriod: balance?.period ?? '',
-		polled: polledFor(manifest, FILES.unemployment),
-		populationPolled: polledFor(manifest, FILES.population),
-		incomePolled: polledFor(manifest, FILES.income),
-		educationPolled: polledFor(manifest, FILES.education),
-		agePolled: polledFor(manifest, FILES.age),
-		balancePolled: polledFor(manifest, FILES.sex),
-		source: register?.source ?? '',
-		populationSource: population?.source ?? '',
-		incomeSource: income?.source ?? '',
-		educationSource: education?.source ?? '',
-		ageSource: age?.source ?? '',
-		balanceSource: balance?.source ?? ''
-	};
-
-	const byCode = new Map(municipal.map((area) => [area.code, area]));
-
-	// Figures only — the scoring is a separate pass so the page can redo it when a category is
-	// switched off. See `scoreCompareViews`.
-	const joined: CompareViews = {
-		finland: { areas: municipal, viewBox: geometry.finland.viewBox, ...common },
-		maakunta: { areas: regionAreas, viewBox: geometry.maakunta.viewBox, ...common },
-		// The same municipal scores, filtered to the metro's eight — not rescored among
-		// themselves, which would make a kunta's number change when the tab flips.
-		//
-		// Only the *figures* are taken from that lookup. Spreading the whole municipal area over
-		// this tab would bring its `d` with it, replacing the metro's own 20 m geometry with the
-		// coarse 2 km shapes from the whole-country file — the right municipalities drawn at the
-		// wrong detail, inside a viewBox meant for the finer ones.
-		tampere: {
-			areas: blank.tampere.areas.map((area) => {
-				const scored = byCode.get(area.code);
-
-				return scored
-					? {
-							...area,
-							rate: scored.rate,
-							change: scored.change,
-							income: scored.income,
-							education: scored.education,
-							age: scored.age,
-							balance: scored.balance,
-							regionName: scored.regionName
-						}
-					: area;
-			}),
-			viewBox: geometry.tampere.viewBox,
-			...common
-		}
-	};
-
-	return scoreCompareViews(joined, INDICATORS);
-}
-
-/**
- * Scores three tabs' worth of already-joined figures. Separate from the fetch so the page can run
- * it again whenever the reader switches a category off — the figures don't change, only which
- * columns are folded into the score.
- *
- * Everything about *how* an area is scored lives here rather than in the component: municipalities
- * are ranked once against all 308 and the metro tab reuses those numbers (a kunta's score must not
- * move when the tab flips), regions are ranked among the 19 because their figures are roll-ups of a
- * different kind of area, and only the *figures* cross from the municipal lookup to the metro tab —
- * taking the whole object would bring its coarse `d` along.
- */
-export function scoreCompareViews(
-	views: CompareViews,
-	indicators: Indicator<CompareArea>[]
-): CompareViews {
-	const empty: ScoreBreakdown = {
-		...EMPTY_SCORE,
-		parts: indicators.map((indicator) => ({
-			key: indicator.key,
-			label: indicator.label,
-			percentile: null,
-			rank: null,
-			ranked: 0,
-			value: null,
-			formatted: indicator.format(null)
-		}))
-	};
-
-	const apply = (areas: CompareArea[], scores: Map<string, ScoreBreakdown>) =>
-		areas.map((area) => ({ ...area, score: scores.get(area.code) ?? empty }));
-
-	const municipal = apply(views.finland.areas, scoreAreas(views.finland.areas, indicators));
-	const byCode = new Map(municipal.map((area) => [area.code, area]));
 
 	return {
-		finland: { ...views.finland, areas: municipal },
-		maakunta: {
-			...views.maakunta,
-			areas: apply(views.maakunta.areas, scoreAreas(views.maakunta.areas, indicators))
-		},
-		tampere: {
-			...views.tampere,
-			areas: views.tampere.areas.map((area) => ({
-				...area,
-				score: byCode.get(area.code)?.score ?? empty
-			}))
-		}
+		areas,
+		finland: { ...national, score: placeReference(national, areas), isReference: true },
+		viewBox: geometry.finland.viewBox,
+		periods: distinct([
+			register.period,
+			population.period,
+			income.period,
+			education.period,
+			age.period,
+			balance.period
+		]),
+		sources: publishersOf([
+			register.source,
+			population.source,
+			income.source,
+			education.source,
+			age.source,
+			balance.source
+		]),
+		polled:
+			distinct([
+				polledFor(manifest, FILES.unemployment),
+				polledFor(manifest, FILES.population),
+				polledFor(manifest, FILES.income),
+				polledFor(manifest, FILES.education),
+				polledFor(manifest, FILES.age),
+				polledFor(manifest, FILES.sex)
+			])[0] ?? null,
+		// Keyed like `INDICATOR_META` (`jobs`, `people`, …) so the popover can label each row
+		// with the same name the rail and detail card already use for that indicator. The source
+		// itself goes through `publishersOf` too — PxWeb's raw string names the table as well as
+		// the publisher, which is more than a table row has room for.
+		files: [
+			{
+				key: 'jobs',
+				source: publishersOf([register.source]).join(' & '),
+				period: register.period,
+				...fileDates(FILES.unemployment)
+			},
+			{
+				key: 'people',
+				source: publishersOf([population.source]).join(' & '),
+				period: population.period,
+				...fileDates(FILES.population)
+			},
+			{
+				key: 'income',
+				source: publishersOf([income.source]).join(' & '),
+				period: income.period,
+				...fileDates(FILES.income)
+			},
+			{
+				key: 'education',
+				source: publishersOf([education.source]).join(' & '),
+				period: education.period,
+				...fileDates(FILES.education)
+			},
+			{
+				key: 'age',
+				source: publishersOf([age.source]).join(' & '),
+				period: age.period,
+				...fileDates(FILES.age)
+			},
+			{
+				key: 'balance',
+				source: publishersOf([balance.source]).join(' & '),
+				period: balance.period,
+				...fileDates(FILES.sex)
+			}
+		],
+		ok: true
+	};
+}
+
+/** The code the Finland reference row answers to. Not a natcode — no municipality can collide. */
+export const FINLAND_CODE = 'FI';
+
+/**
+ * Builds a `ScoreBreakdown` for the whole country by *placing* its published figures among the
+ * municipalities, rather than by adding a 309th area to the ranking.
+ *
+ * The distinction is the point. Finland's unemployment rate is a national aggregate, not another
+ * municipality's rate; folding it in would shift every municipality below it down a rank on the
+ * strength of a figure that is partly made of them. So `placeValue` answers "where would this
+ * sit", every rank it produces is printed with an "≈", and the 308 never notice it is there.
+ *
+ * The composite is the mean of those placed percentiles — the same arithmetic `scoreAreas` uses,
+ * over the same weights — and is then itself placed among the municipal scores.
+ */
+function placeReference(
+	national: Omit<CompareArea, 'score'>,
+	areas: CompareArea[]
+): ScoreBreakdown {
+	const area = national as CompareArea;
+
+	const parts: ScorePart[] = INDICATORS.map((indicator) => {
+		const value = indicator.valueOf(area);
+		const placed = placeValue(
+			areas.map((other) => indicator.valueOf(other)),
+			value,
+			indicator.higherIsBetter
+		);
+
+		return {
+			key: indicator.key,
+			label: indicator.label,
+			percentile: placed.percentile,
+			rank: placed.rank,
+			ranked: placed.ranked,
+			value,
+			formatted: indicator.format(value)
+		};
+	});
+
+	const totalWeight = INDICATORS.reduce((sum, indicator) => sum + indicator.weight, 0);
+	const presentWeight = INDICATORS.reduce(
+		(sum, indicator, i) => (parts[i].percentile === null ? sum : sum + indicator.weight),
+		0
+	);
+	const weighted = parts.reduce(
+		(sum, part, i) =>
+			part.percentile === null ? sum : sum + part.percentile * INDICATORS[i].weight,
+		0
+	);
+
+	// The same coverage floor the municipalities are held to. The country publishes all six, so
+	// this never bites in practice — it is here so the two can't drift apart.
+	const covered = totalWeight ? presentWeight / totalWeight : 0;
+	const score = covered >= MIN_COVERAGE && presentWeight ? weighted / presentWeight : null;
+
+	const placed = placeValue(
+		areas.map((other) => other.score.score),
+		score,
+		true
+	);
+
+	return {
+		score,
+		scorePercentile: placed.percentile,
+		rank: placed.rank,
+		ranked: placed.ranked,
+		parts,
+		isPartial: covered < 1
 	};
 }

@@ -121,6 +121,26 @@
 }
 
 :root {
+	/*
+	  Surface aliases for the design handoff's tokens. They are deliberately *aliases* rather
+	  than the hex values the handoff lists: `--surface #ffffff`, `--surface-2 #f5f7f9` and
+	  `--line #e4e9ee` are already exactly DaisyUI's base-100/200/300 in this theme, so pointing
+	  at the theme instead of restating the hexes is what makes the whole page follow the dark
+	  theme for free. Every card, rail and table below is written against these three.
+	*/
+	--surface: var(--color-base-100);
+	--surface-2: var(--color-base-200);
+	--line: var(--color-base-300);
+	/* A row/item background a hover can actually be seen against. `--surface-2` sits a couple
+	   of percent off `--surface` — enough to key a resting stripe (the reference row) apart from
+	   the rows around it, not enough to register as "something responded to the cursor". Mixed
+	   from `--ink` rather than fixed so it flips correctly in the dark theme too. */
+	--hover: color-mix(in srgb, var(--ink) 7%, var(--surface));
+	/* The header's navy. Fixed in both themes — it already reads as dark chrome in the light
+	   one, so there is nothing for the dark theme to change. */
+	--navy: #1b2a44;
+	--radius-card: 12px;
+
 	/* Ink scale — one navy hue desaturating into grey, so text never looks like four
      unrelated colours stacked on top of each other. */
 	--ink: #101a2b;
@@ -145,21 +165,31 @@ html {
 	-moz-osx-font-smoothing: grayscale;
 }
 
+/*
+  The page is an application, not a document: header plus a three-column grid that fills the
+  viewport exactly once, with every column scrolling inside itself. Nothing scrolls the page —
+  which is also what `playwright/fits-one-screen.spec.ts` asserts.
+*/
+html,
 body {
-	@apply m-0 flex h-screen flex-col bg-base-100;
+	height: 100%;
+}
+
+body {
+	@apply m-0 flex flex-col overflow-hidden bg-base-200;
 	color: var(--ink);
 	/* Every figure on this page sits in a column that has to line up: rates above each other
      in the panel, counts against their labels. Tabular by default, everywhere. */
 	font-variant-numeric: tabular-nums;
+	font-size: 13px;
 }
 
-#app {
-	@apply flex-grow;
-}
-
-footer {
-	padding-bottom: 30px;
-	@apply mt-0 bg-base-100;
+/* The one card shape the whole layout is built from — rail, map and both side-panel blocks. */
+.panel {
+	background: var(--surface);
+	border: 1px solid var(--line);
+	border-radius: var(--radius-card);
+	min-height: 0;
 }
 
 /*
@@ -171,8 +201,8 @@ footer {
 .stat-label {
 	font-stretch: 88%;
 	font-weight: 650;
-	font-size: 0.6875rem;
-	letter-spacing: 0.09em;
+	font-size: 10.5px;
+	letter-spacing: 0.1em;
 	text-transform: uppercase;
 	color: var(--ink-faint);
 }
@@ -183,7 +213,7 @@ footer {
 	letter-spacing: -0.02em;
 }
 
-/* Show social links only on wider screens */
+/* Show the repository link only on wider screens. */
 @media (max-width: 700px) {
 	.mobile-hide {
 		display: none;

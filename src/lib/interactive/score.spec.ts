@@ -1,15 +1,14 @@
 import { describe, it, expect } from 'vitest';
 import {
-	inkOnScore,
 	MIN_COVERAGE,
+	percentileColor,
 	percentileRanks,
-	SCORE_CLASSES,
+	placeValue,
+	SCORE_PALETTE,
 	scoreAreas,
-	scoreColorFor,
-	scoreLabelFor,
 	type Indicator
 } from './score';
-import { DIVERGING_SCALE, NO_DATA_COLOR } from './unemployment';
+import { NO_DATA_COLOR } from './unemployment';
 
 describe('percentileRanks', () => {
 	it('puts the best value at 100 and the worst at 0', () => {
@@ -194,19 +193,15 @@ describe('coverage floor', () => {
 	});
 });
 
-describe('scoreColorFor', () => {
-	it('diverges around 50, which percentile ranking makes a true midpoint', () => {
-		expect(SCORE_CLASSES.map((c) => c.min)).toEqual([-Infinity, 10, 25, 45, 55, 75, 90]);
-	});
-
-	it('is a traffic light, not the site-wide grey-midpoint scale', () => {
-		// The only map carrying a composite verdict, so the only one where the middle is
-		// "middling" rather than "at the reference figure" — grey says nothing, yellow does.
-		expect(scoreColorFor(50)).not.toBe(DIVERGING_SCALE.neutral.color);
-		expect(scoreColorFor(50)).toBe('#ecd15f');
-		// Both ends stay the shared green and red, so better and worse read the same site-wide.
-		expect(scoreColorFor(95)).toBe(DIVERGING_SCALE.green[2].color);
-		expect(scoreColorFor(5)).toBe(DIVERGING_SCALE.red[2].color);
+describe('percentileColor', () => {
+	it('cuts the palette into equal sevenths, so each colour holds a seventh of the areas', () => {
+		// The bin edges the legend prints are septiles of the figures for exactly this reason —
+		// the strip and the numbers under it have to describe the same cut points.
+		expect(percentileColor(0)).toBe(SCORE_PALETTE[0]);
+		expect(percentileColor(100 / 7 - 0.01)).toBe(SCORE_PALETTE[0]);
+		expect(percentileColor(100 / 7)).toBe(SCORE_PALETTE[1]);
+		expect(percentileColor(50)).toBe(SCORE_PALETTE[3]);
+		expect(percentileColor(100)).toBe(SCORE_PALETTE[6]);
 	});
 
 	it('runs light at the middle to dark at both ends, so magnitude survives CVD', () => {
@@ -221,7 +216,7 @@ describe('scoreColorFor', () => {
 
 			return 0.2126 * channel(0) + 0.7152 * channel(1) + 0.0722 * channel(2);
 		};
-		const light = SCORE_CLASSES.map((c) => luminance(c.color));
+		const light = SCORE_PALETTE.map(luminance);
 
 		// Index 3 is the yellow midpoint; both directions get darker away from it.
 		expect(light[3]).toBeGreaterThan(Math.max(light[2], light[4]));
@@ -231,22 +226,41 @@ describe('scoreColorFor', () => {
 		expect(light[5]).toBeGreaterThan(light[6]);
 	});
 
-	it('picks the class the score falls in, edges included', () => {
-		expect(scoreColorFor(45)).toBe(SCORE_CLASSES[3].color);
-		expect(scoreColorFor(44.9)).toBe(SCORE_CLASSES[2].color);
-		expect(scoreColorFor(90)).toBe(SCORE_CLASSES[6].color);
+	it('hands an unscored area the hatch backing rather than a flat grey of its own', () => {
+		expect(percentileColor(null)).toBe(NO_DATA_COLOR);
+	});
+});
+
+describe('placeValue', () => {
+	const values = [10, 20, 30, 40];
+
+	it('places a figure without letting it occupy a rank of its own', () => {
+		// 35 beats three of the four and is beaten by one, so it would come second.
+		expect(placeValue(values, 35, true)).toEqual({ percentile: 75, rank: 2, ranked: 4 });
 	});
 
-	it('hatches an unscored area rather than giving it a flat grey of its own', () => {
-		expect(scoreColorFor(null)).toBe(NO_DATA_COLOR);
-		expect(scoreLabelFor(null)).toBe('no score');
+	it('flips for a lower-is-better indicator', () => {
+		expect(placeValue(values, 15, false)).toEqual({ percentile: 75, rank: 2, ranked: 4 });
 	});
 
-	it('names the class in words for the chip, and carries measured ink for it', () => {
-		expect(scoreLabelFor(95)).toBe('top 10 %');
-		expect(scoreLabelFor(50)).toBe('about average');
-		expect(inkOnScore(95)).toBe('#ffffff');
-		expect(inkOnScore(50)).toBe('var(--map-ink)');
+	it('counts a tie as beaten, so an exactly-average figure is not ranked ahead of its equals', () => {
+		expect(placeValue(values, 30, true).rank).toBe(2);
+	});
+
+	it('leaves the whole placement null when there is no figure to place', () => {
+		expect(placeValue(values, null, true)).toEqual({ percentile: null, rank: null, ranked: 4 });
+	});
+
+	it('ignores areas with no figure, and reports how many were actually ranked', () => {
+		expect(placeValue([10, null, 30], 20, true)).toEqual({ percentile: 50, rank: 2, ranked: 2 });
+	});
+
+	it('has nothing to place a figure among when every area is missing one', () => {
+		expect(placeValue([null, null], 5, true)).toEqual({
+			percentile: null,
+			rank: null,
+			ranked: 0
+		});
 	});
 });
 
@@ -293,15 +307,16 @@ describe('scorePercentile', () => {
 		expect(inBottomBand).toBeGreaterThanOrEqual(10);
 	});
 
-	it('gives every class its intended share of a uniform ranking', () => {
-		const areas = spread(200);
+	it('spreads a uniform ranking evenly across the palette', () => {
+		// The pay-off of ranking the score before colouring it: with 7 equal bins over a
+		// percentile, every colour on the map holds a seventh of the country by construction.
+		// Colouring the raw score instead put one municipality of 304 in the darkest green.
+		const areas = spread(210);
 		const scored = scoreAreas(areas, two);
-		const labels = areas.map((a) => scoreLabelFor(scored.get(a.code)?.scorePercentile ?? null));
-		const count = (label: string) => labels.filter((l) => l === label).length;
+		const colors = areas.map((a) => percentileColor(scored.get(a.code)?.scorePercentile ?? null));
 
-		// 10 / 15 / 20 / 10 / 20 / 15 / 10 per cent, from the 10/25/45/55/75/90 band edges.
-		expect(count('top 10 %')).toBeCloseTo(20, -1);
-		expect(count('about average')).toBeCloseTo(20, -1);
-		expect(count('bottom 10 %')).toBeCloseTo(20, -1);
+		for (const color of SCORE_PALETTE) {
+			expect(colors.filter((c) => c === color).length).toBeCloseTo(30, -1);
+		}
 	});
 });
