@@ -130,10 +130,6 @@
 	}
 </script>
 
-<svelte:head>
-	<title>Maps | Compare</title>
-</svelte:head>
-
 <MapShell
 	bind:region
 	views={shellViews}
