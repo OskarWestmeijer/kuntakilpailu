@@ -1,0 +1,35 @@
+{
+  "polled": "2026-08-17T17:16:01Z",
+  "files": {
+    "unemployment_register_kunnat_12r5.json": {
+      "period": "2026M06",
+      "updated": "2026-07-21T05:00:00Z",
+      "polled": "2026-08-11T18:44:46Z"
+    },
+    "population_register_kunnat_121w.json": {
+      "period": "2025",
+      "updated": "2026-05-27T05:00:00Z",
+      "polled": "2026-08-11T18:44:46Z"
+    },
+    "income_register_kunnat_14ww.json": {
+      "period": "2024",
+      "updated": "2025-12-16T06:00:00Z",
+      "polled": "2026-08-12T18:19:32Z"
+    },
+    "education_register_kunnat_12bs.json": {
+      "period": "2025",
+      "updated": "2026-06-18T05:00:00Z",
+      "polled": "2026-08-17T16:15:39Z"
+    },
+    "age_register_kunnat_11ra.json": {
+      "period": "2025",
+      "updated": "2026-05-29T05:00:00Z",
+      "polled": "2026-08-17T17:01:53Z"
+    },
+    "sex_register_kunnat_11re.json": {
+      "period": "2025",
+      "updated": "2026-04-01T05:00:00Z",
+      "polled": "2026-08-17T17:16:01Z"
+    }
+  }
+}

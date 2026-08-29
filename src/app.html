@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en" data-theme="customtheme">
+	<head>
+		<meta charset="utf-8" />
+		<!--
+		Sets the real data-theme before the rest of <head>/<body> is parsed, so the page never
+		flashes the wrong theme. Without an explicit data-theme, DaisyUI's *own* built-in dark
+		theme would auto-activate under prefers-color-scheme: dark via
+		`:root:not([data-theme])` — leaving <html> pinned to a known theme (light by default,
+		here overwritten to the stored/system choice) opts the page out of that entirely and
+		hands theme selection to ThemeToggle.svelte + this script instead. See app.css for the
+		two theme blocks (customtheme / customtheme-dark).
+	-->
+		<script>
+			(function () {
+				try {
+					var stored = localStorage.getItem('kuntakilpailu-theme');
+					var theme =
+						stored === 'customtheme' || stored === 'customtheme-dark'
+							? stored
+							: window.matchMedia('(prefers-color-scheme: dark)').matches
+								? 'customtheme-dark'
+								: 'customtheme';
+
+					document.documentElement.setAttribute('data-theme', theme);
+				} catch (e) {}
+			})();
+		</script>
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<meta name="color-scheme" content="light dark" />
+		<meta
+			name="description"
+			content="Compare all 308 Finnish municipalities on one score, built from unemployment, population change, income, education, age and gender balance."
+		/>
+		<meta
+			name="keywords"
+			content="Finland, kunta, kuntavertailu, municipalities, statistics, Tilastokeskus, unemployment, income, education, map"
+		/>
+		<meta name="author" content="Oskar Westmeijer" />
+		<meta name="robots" content="index, follow" />
+		<title>Kuntakilpailu | Finnish municipality comparison</title>
+		%sveltekit.head%
+	</head>
+
+	<body data-sveltekit-preload-data="hover">
+		<div style="display: contents">%sveltekit.body%</div>
+	</body>
+</html>
