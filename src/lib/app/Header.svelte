@@ -2,7 +2,10 @@
   The 54px navy bar above everything: brand, search, language, theme.
 
   It is the page's only chrome — there is no footer and no navigation, because there is only one
-  page. The repository link stays from the old navbar so attribution doesn't vanish with it.
+  page, and the strict one-screen budget (see app.css) leaves no height to spare for one. The
+  repository link and the "created by" credit live here instead, for the same reason the old
+  navbar's repo link stayed: attribution shouldn't vanish along with the footer it would
+  otherwise sit in.
 -->
 <script lang="ts">
 	import SearchBox from './SearchBox.svelte';
@@ -41,7 +44,15 @@
 	<div class="chrome">
 		<ThemeToggle />
 		<a
-			class="mobile-hide repo"
+			class="mobile-hide navlink"
+			href="https://oskar-westmeijer.com"
+			rel="noreferrer noopener"
+			target="_blank"
+		>
+			Oskar Westmeijer 🐨 2026
+		</a>
+		<a
+			class="mobile-hide navlink"
 			href="https://github.com/OskarWestmeijer/kuntakilpailu"
 			rel="noreferrer noopener"
 			target="_blank"
@@ -130,7 +141,7 @@
 		color: #fff;
 	}
 
-	.repo {
+	.navlink {
 		font-size: 11.5px;
 		font-weight: 600;
 		letter-spacing: 0.02em;
@@ -138,11 +149,21 @@
 		border-radius: 8px;
 		color: rgba(255, 255, 255, 0.6);
 		text-decoration: none;
+		white-space: nowrap;
 	}
 
-	.repo:hover {
+	.navlink:hover {
 		color: #fff;
 		background: rgba(255, 255, 255, 0.12);
+	}
+
+	/* The credit is the first thing to go once both links are competing with everything else —
+	   the repo link points at *this* project's source, which matters more here than the general
+	   homepage link does. */
+	@media (max-width: 980px) {
+		.navlink:first-of-type {
+			display: none;
+		}
 	}
 
 	@media (max-width: 720px) {
