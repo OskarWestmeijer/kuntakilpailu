@@ -7,14 +7,18 @@
 import type { KuntaStats } from './unemployment';
 
 /**
- * The export also carries `id`, `gml_id`, the Swedish name and the water/total area figures;
- * none of those are used. `landarea` (km², the official maa-pinta-ala) is — it's the
- * denominator behind the population map's density, and it lives in the geometry rather than
- * in any of the PxWeb exports. The maakunta file doesn't carry it, hence optional.
+ * The export also carries `id`, `gml_id` and the water/total area figures; none of those are
+ * used. `landarea` (km², the official maa-pinta-ala) is — it's part of the detail card's
+ * subtitle, and it lives in the geometry rather than in any of the PxWeb exports.
+ *
+ * `nameswe` is the Swedish name. It matters twice: it's the second line of the detail card for
+ * a bilingual municipality (Mustasaari / Korsholm), and search matches against it, because
+ * "Korsholm" is what a Swedish-speaking reader will type.
  */
 export type KuntaProperties = {
 	natcode: string;
 	namefin: string;
+	nameswe?: string;
 	landarea?: number;
 };
 
@@ -40,11 +44,17 @@ export type KuntaCollection = {
 export type KuntaBase = {
 	name: string;
 	code: string;
-	/** Land area in km², straight from the geometry. Null for maakunnat, whose file omits
-	 *  it — the population loader sums its municipalities' figures instead. */
+	/** Swedish name, where the export carries one. Equal to `name` for most municipalities —
+	 *  the detail card only shows it when it actually differs. */
+	nameSwedish: string | null;
+	/** Land area in km², straight from the geometry. */
 	landArea: number | null;
 	/** SVG path data, one path per municipality (all its islands included). */
 	d: string;
+	/** `[minX, minY, maxX, maxY]` in the same flipped-Y space as `d` and the viewBox. What the
+	 *  map zooms to when a municipality is selected; computed here because the coordinates are
+	 *  already being walked, and because the GeoJSON never reaches the browser. */
+	bbox: [number, number, number, number];
 };
 
 export type Kunta<S = KuntaStats> = KuntaBase & S;
@@ -55,20 +65,43 @@ export type FinlandMap<S> = {
 };
 
 /**
- * Builds the `d` attribute for one MultiPolygon. Every ring becomes its own subpath, so a
- * municipality with islands still renders — and hovers — as a single element.
+ * Builds the `d` attribute for one MultiPolygon, and its bounding box along the way. Every ring
+ * becomes its own subpath, so a municipality with islands still renders — and hovers — as a
+ * single element.
+ *
+ * The bbox is measured off the *rounded* points rather than the source coordinates, so it is
+ * exactly the box the rendered path occupies. Off by up to a metre from the true geometry,
+ * which is nothing against a country 1 160 km tall and matters less than the two agreeing.
  */
-function toPathData(coordinates: number[][][][]): string {
+function toPathData(coordinates: number[][][][]): {
+	d: string;
+	bbox: [number, number, number, number];
+} {
 	const subpaths: string[] = [];
+	let minX = Infinity;
+	let minY = Infinity;
+	let maxX = -Infinity;
+	let maxY = -Infinity;
 
 	for (const polygon of coordinates) {
 		for (const ring of polygon) {
-			const points = ring.map(([x, y]) => `${Math.round(x)},${Math.round(-y)}`);
+			const points = ring.map(([x, y]) => {
+				const px = Math.round(x);
+				const py = Math.round(-y);
+
+				if (px < minX) minX = px;
+				if (px > maxX) maxX = px;
+				if (py < minY) minY = py;
+				if (py > maxY) maxY = py;
+
+				return `${px},${py}`;
+			});
+
 			subpaths.push(`M${points.join('L')}Z`);
 		}
 	}
 
-	return subpaths.join('');
+	return { d: subpaths.join(''), bbox: [minX, minY, maxX, maxY] };
 }
 
 /**
@@ -106,12 +139,16 @@ export function toFinlandMap<S>(
 	const kuntas = geojson.features
 		.map((feature) => {
 			const p = feature.properties;
+			const { d, bbox } = toPathData(feature.geometry.coordinates);
+
 			return {
 				name: p.namefin,
 				code: p.natcode,
+				nameSwedish: p.nameswe ?? null,
 				landArea: p.landarea ?? null,
 				...(stats.get(p.natcode) ?? emptyStats),
-				d: toPathData(feature.geometry.coordinates)
+				d,
+				bbox
 			};
 		})
 		.sort((a, b) => a.name.localeCompare(b.name, 'fi'));
