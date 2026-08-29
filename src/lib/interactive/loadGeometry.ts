@@ -2,10 +2,10 @@
  * The build-time half of an interactive map: geometry, and nothing else.
  *
  * Statistics used to be imported here too and baked into the prerendered page. They aren't
- * any more — they're fetched from `/data/` when the page opens (see `liveData.ts`), so a cron
- * on the server can refresh the figures without rebuilding the image. Geometry stays here
- * because it's the expensive part (a 475 kB GeoJSON becomes a few hundred SVG paths) and
- * because it never changes on a cron.
+ * any more — they're fetched from `/data/` when the page opens (see `liveData.ts`), so the
+ * daily deploy can drop new figures into the bundle without touching the prerendered image.
+ * Geometry stays here because it's the expensive part (a 475 kB GeoJSON becomes a few hundred
+ * SVG paths) and because it never changes on a cron.
  *
  * So: this runs once at build time from `+page.server.ts` and ships shapes with every stat
  * field present and null. The map renders immediately as an outline, and fills in a moment

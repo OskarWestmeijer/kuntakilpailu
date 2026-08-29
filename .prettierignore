@@ -8,6 +8,9 @@ bun.lockb
 # Miscellaneous
 /static/
 
+# Frozen PxWeb exports, byte-for-byte as the API returned them
+/data/
+
 # Source data for the interactive map (QGIS / PxWeb exports, not hand-edited)
 *.geojson
 /src/lib/interactive/*.json

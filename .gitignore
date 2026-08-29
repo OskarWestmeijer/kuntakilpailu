@@ -7,6 +7,10 @@ node_modules
 __pycache__/
 
 # Output
+# The statistics are fetched at deploy time, not committed: `.github/workflows/deploy.yml`
+# runs `scripts/fetch_statfi.py` into here on every build. The frozen copy dev and the e2e
+# suite run against lives in `data/fixtures` — see `npm run data:fixtures`.
+/static/data
 .output
 .vercel
 .netlify

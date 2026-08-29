@@ -3,6 +3,17 @@ name: Deploy to GitHub Pages
 on:
   push:
     branches: [main]
+  # The daily refresh. Nothing is committed by it: the build below fetches the statistics
+  # straight from Statistics Finland and packages them into the same artifact it publishes,
+  # so a deploy is the only thing that moves the figures on the live site.
+  #
+  # 07:17 UTC clears both of Statistics Finland's publication windows (the manifest's
+  # `updated` stamps are 05:00Z and 06:00Z), and the odd minute stays out of the queue that
+  # builds up on the hour — scheduled runs are best-effort and get delayed there.
+  #
+  # GitHub disables a schedule after 60 days without repo activity. It emails first.
+  schedule:
+    - cron: '17 7 * * *'
   workflow_dispatch:
 
 # Permissions the official Pages deploy needs.
@@ -18,6 +29,7 @@ concurrency:
 
 env:
   NODE_VERSION: 24.12.0
+  PYTHON_VERSION: '3.13'
 
 jobs:
   build:
@@ -30,6 +42,20 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run test:unit -- --run
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      # No pip install: the script is standard library only, on purpose. It writes into
+      # `static/data`, which is gitignored, so what the build packages is what this fetched.
+      #
+      # It validates every response and exits non-zero without writing if anything looks
+      # wrong, which fails the job here — before the build. Pages goes on serving the last
+      # successful deploy, so a bad upstream release leaves yesterday's figures up rather
+      # than replacing them with an empty map.
+      - name: Fetch the statistics from Statistics Finland
+        run: python3 scripts/fetch_statfi.py --verbose
+
       # BASE_PATH is what tells SvelteKit the site lives under a project sub-path rather than
       # at a domain root. Only set here: dev, preview and the e2e suite all run at `/`.
       - run: npm run build
